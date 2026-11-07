@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simulador de firewall</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+body{margin:0}
+/* Layout: consola de dos paneles — red y pruebas a la izquierda, tabla de reglas a la derecha; se apila en teléfono */
+:root{
+  --bg:#F2F5F9; --panel:#FFFFFF; --ink:#13263A; --muted:#566779; --line:#D6DFE9;
+  --navy:#002B50; --navy-ink:#FFFFFF; --gold:#F2A900; --gold-ink:#3A2A00;
+  --ok:#2E7D32; --okbg:#E5F2E6; --bad:#C8102E; --badbg:#FBE8EB; --na:#6B7A8A; --nabg:#ECEFF3;
+  --inet:#FBEFF1; --inet-b:#E3A6B1; --dmz:#FFF5DA; --dmz-b:#E7C25A; --lan:#E8F3EA; --lan-b:#9CCBA4;
+  --brick:#B4502F; --brick2:#8E3B22; --wire:#9DB2C8; --node:#FFFFFF;
+  --sans:"Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono:ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1824; --panel:#152333; --ink:#E6EDF5; --muted:#9AAABB; --line:#2A3B4E;
+  --navy:#2F6FA8; --navy-ink:#FFFFFF; --gold:#F2B21E; --gold-ink:#2A1E00;
+  --ok:#5CB860; --okbg:#173022; --bad:#FF6B7F; --badbg:#3A1820; --na:#9AAABB; --nabg:#223244;
+  --inet:#2B1A20; --inet-b:#7A3F4B; --dmz:#2C2614; --dmz-b:#806A2A; --lan:#16291C; --lan-b:#3F6E49;
+  --brick:#B4502F; --brick2:#7A3019; --wire:#4A6078; --node:#1C2E42; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1824; --panel:#152333; --ink:#E6EDF5; --muted:#9AAABB; --line:#2A3B4E;
+  --navy:#2F6FA8; --navy-ink:#FFFFFF; --gold:#F2B21E; --gold-ink:#2A1E00;
+  --ok:#5CB860; --okbg:#173022; --bad:#FF6B7F; --badbg:#3A1820; --na:#9AAABB; --nabg:#223244;
+  --inet:#2B1A20; --inet-b:#7A3F4B; --dmz:#2C2614; --dmz-b:#806A2A; --lan:#16291C; --lan-b:#3F6E49;
+  --brick:#B4502F; --brick2:#7A3019; --wire:#4A6078; --node:#1C2E42; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.45;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:20px 40px}
+.wrap{max-width:1360px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
+h1{font-size:28px;margin:0;color:var(--ink);text-wrap:balance;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:4px 0 0;max-width:70ch}
+.score{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 16px}
+.score b{font-size:26px;font-variant-numeric:tabular-nums}
+.score.all b{color:var(--ok)} .score.some b{color:var(--bad)}
+.score small{color:var(--muted);display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+.grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:980px){.grid{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.panel h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+svg{width:100%;height:auto;display:block}
+.zone-inet{fill:var(--inet);stroke:var(--inet-b)} .zone-dmz{fill:var(--dmz);stroke:var(--dmz-b)} .zone-lan{fill:var(--lan);stroke:var(--lan-b)}
+.zt{font-size:17px;font-weight:800;letter-spacing:.08em;fill:var(--ink)}
+.wire{stroke:var(--wire);stroke-width:3;fill:none}
+.nd rect{fill:var(--node);stroke:var(--navy);stroke-width:2.5}
+.nd .nm{font-size:13px;font-weight:700;fill:var(--ink)} .nd .ip{font-size:11px;fill:var(--muted);font-family:var(--mono)}
+.nd .ic{fill:var(--navy)}
+.fwbox{fill:url(#brk);transition:filter .2s}
+.fwglow{fill:none;stroke-width:8;stroke:transparent;transition:stroke .2s}
+.fwglow.ok{stroke:var(--ok)} .fwglow.bad{stroke:var(--bad)}
+.fwl{font-size:15px;font-weight:900;fill:var(--ink);letter-spacing:.1em}
+.pk circle{stroke:#fff;stroke-width:2}
+.pk text{font-size:11px;font-weight:800;fill:#fff}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;color:var(--muted);font-size:13px}
+.btn{font:inherit;font-weight:700;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 12px;cursor:pointer}
+.btn:hover{border-color:var(--navy)}
+.btn:focus-visible,select:focus-visible,.chip:focus-visible,tr:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.btn.pri{background:var(--navy);color:var(--navy-ink);border-color:var(--navy)}
+.btn.warn{color:var(--bad)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+select{font:inherit;border:1px solid var(--line);border-radius:8px;padding:7px 8px;background:var(--panel);color:var(--ink);min-width:0;max-width:100%}
+.form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.form label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.seg button{font:inherit;font-weight:700;border:0;background:transparent;color:var(--muted);padding:7px 14px;cursor:pointer}
+.seg button[aria-pressed="true"].d{background:var(--bad);color:#fff}
+.seg button[aria-pressed="true"].a{background:var(--ok);color:#fff}
+ol.rules{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+ol.rules li{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px;transition:background .2s,border-color .2s}
+ol.rules li.flash{border-color:var(--gold);background:var(--dmz)}
+ol.rules li.dead{opacity:.55}
+.num{font-family:var(--mono);font-weight:800;color:var(--muted);text-align:center}
+.what{min-width:0}
+.what b{font-weight:700} .what .svc{font-family:var(--mono);font-size:13px;color:var(--muted)}
+.what .hits{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ctl{display:flex;gap:4px;align-items:center}
+.ctl button:not(.chip){font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:7px;width:30px;height:30px;cursor:pointer;line-height:1}
+.ctl button:not(.chip):disabled{opacity:.35;cursor:default}
+.chip{font:inherit;font-size:12px;font-weight:800;letter-spacing:.05em;border-radius:999px;padding:4px 10px;border:0;cursor:pointer;white-space:nowrap}
+.chip.a{background:var(--okbg);color:var(--ok)} .chip.d{background:var(--badbg);color:var(--bad)}
+.deflt{border-style:dashed!important;background:var(--bg)}
+.empty{color:var(--muted);font-style:italic;padding:6px 2px}
+.tblw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+tbody tr{cursor:pointer} tbody tr:hover{background:var(--bg)}
+tr.miss td:first-child{box-shadow:inset 4px 0 0 var(--bad)}
+.pill{display:inline-block;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:800;white-space:nowrap}
+.pill.a{background:var(--okbg);color:var(--ok)} .pill.d{background:var(--badbg);color:var(--bad)} .pill.n{background:var(--nabg);color:var(--na)}
+.mono{font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap}
+.ok-ic{color:var(--ok);font-weight:900} .no-ic{color:var(--bad);font-weight:900}
+details{border:1px solid var(--line);border-radius:12px;padding:10px 14px;background:var(--panel)}
+summary{cursor:pointer;font-weight:800}
+details ol{margin:10px 0 4px;padding-left:22px;display:flex;flex-direction:column;gap:6px;max-width:75ch}
+.note{font-size:13px;color:var(--muted)}
+.custom{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:8px;align-items:end}
+@media (max-width:560px){.custom{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.form{grid-template-columns:minmax(0,1fr)}}
+.custom label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+#verdict{font-weight:700;min-height:1.4em}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header>
+  <div>
+    <h1>Simulador de firewall</h1>
+    <p class="sub">Agrega, ordena y quita reglas; luego envía tráfico y mira qué pasa y qué se bloquea. Las reglas se revisan de arriba abajo y gana la primera que coincide.</p>
+  </div>
+  <div class="score" id="score" aria-live="polite"><div><small>Cumple la política</small><b id="scoreN">0 de 0</b></div></div>
+</header>
+
+<details id="reto">
+  <summary>La política de la empresa: esto deben cumplir sus reglas</summary>
+  <ol>
+    <li>Cualquiera, desde Internet o desde la LAN, puede ver el <b>sitio web</b> (HTTP y HTTPS), enviar correo al <b>servidor de correo</b> (SMTP) y consultar el <b>DNS</b>.</li>
+    <li>Los usuarios de la LAN pueden <b>navegar en Internet</b> (HTTP y HTTPS). Nada más hacia Internet.</li>
+    <li>Solo <b>PC Admin</b> puede entrar por <b>SSH</b> a los servidores de la DMZ.</li>
+    <li>El servidor de correo puede <b>enviar correo a Internet</b> (SMTP).</li>
+    <li>Ningún otro tráfico: la DMZ no inicia conexiones hacia la LAN ni hacia Internet, y desde Internet no se llega a la LAN.</li>
+  </ol>
+  <p class="note">El firewall es con estado: cuando una conexión se permite, sus respuestas regresan solas. Por eso solo se escriben reglas para quien inicia.</p>
+</details>
+
+<div class="grid">
+  <div class="col">
+    <section class="panel" aria-label="Red">
+      <h2>La red</h2>
+      <svg id="net" viewBox="0 0 900 520" role="img" aria-label="Diagrama: Internet a la izquierda, firewall al centro, DMZ y LAN a la derecha">
+        <defs>
+          <pattern id="brk" width="40" height="16" patternUnits="userSpaceOnUse"><rect width="40" height="16" fill="var(--brick)"/><path d="M0 15.5H40M20 0V15.5" stroke="var(--brick2)" stroke-width="3"/></pattern>
+        </defs>
+        <rect class="zone-inet" x="12" y="12" width="250" height="496" rx="18" stroke-width="2" stroke-dasharray="8 6"/>
+        <text class="zt" x="137" y="44" text-anchor="middle">INTERNET</text>
+        <rect class="zone-dmz" x="600" y="12" width="288" height="236" rx="18" stroke-width="2" stroke-dasharray="8 6"/>
+        <text class="zt" x="744" y="44" text-anchor="middle">DMZ</text>
+        <rect class="zone-lan" x="600" y="272" width="288" height="236" rx="18" stroke-width="2" stroke-dasharray="8 6"/>
+        <text class="zt" x="744" y="304" text-anchor="middle">LAN USUARIOS</text>
+        <g id="wires"></g>
+        <rect class="fwglow" id="fwglow" x="396" y="150" width="78" height="220" rx="12"/>
+        <rect class="fwbox" x="400" y="154" width="70" height="212" rx="10"/>
+        <text class="fwl" x="435" y="140" text-anchor="middle">FIREWALL</text>
+        <g id="nodes"></g>
+        <g id="pk"></g>
+      </svg>
+      <div class="legend"><span><span style="color:var(--ok)">●</span> verde: pasa</span><span><span style="color:var(--bad)">●</span> rojo: bloqueado en el firewall</span><span><span style="color:var(--na)">●</span> gris: no cruza el firewall (misma zona)</span></div>
+    </section>
+
+    <section class="panel" aria-label="Enviar un paquete">
+      <h2>Enviar un paquete</h2>
+      <div class="custom">
+        <label for="cs">Origen<select id="cs"></select></label>
+        <label for="cd">Destino<select id="cd"></select></label>
+        <label for="cv">Servicio<select id="cv"></select></label>
+        <button class="btn pri" id="csend">Enviar</button>
+      </div>
+      <div id="verdict" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" aria-label="Pruebas">
+      <div class="row" style="justify-content:space-between">
+        <h2>Tráfico de prueba</h2>
+        <button class="btn pri" id="playall">Animar todo</button>
+      </div>
+      <p class="note" style="margin:0">Haz clic en un renglón para ver ese paquete. La columna «Política» dice lo que debería pasar.</p>
+      <div class="tblw"><table>
+        <thead><tr><th>Tráfico</th><th>Servicio</th><th>Política</th><th>Resultado</th><th>Decidió</th><th></th></tr></thead>
+        <tbody id="tests"></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel" aria-label="Reglas">
+      <div class="row" style="justify-content:space-between">
+        <h2>Reglas del firewall</h2>
+        <div class="row">
+          <button class="btn" id="pTrad">Cargar política tradicional</button>
+          <button class="btn" id="pOpen">Todo abierto</button>
+          <button class="btn warn" id="pClear">Vaciar reglas</button>
+        </div>
+      </div>
+      <ol class="rules" id="rules"></ol>
+      <div class="row" style="justify-content:space-between;border:1px dashed var(--line);border-radius:10px;padding:8px 10px">
+        <span><b>Si ninguna regla coincide</b> <span class="note">(política por defecto)</span></span>
+        <span class="seg" role="group" aria-label="Política por defecto"><button class="d" id="polD">Negar</button><button class="a" id="polA">Permitir</button></span>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Agregar regla">
+      <h2>Agregar una regla</h2>
+      <div class="form">
+        <label for="fs">Origen<select id="fs"></select></label>
+        <label for="fd">Destino<select id="fd"></select></label>
+        <label for="fv">Servicio<select id="fv"></select></label>
+        <label for="fa">Acción<select id="fa"><option value="a">Permitir</option><option value="d">Negar</option></select></label>
+      </div>
+      <div class="row">
+        <button class="btn pri" id="fadd">Agregar al final</button>
+        <button class="btn" id="faddTop">Agregar al inicio</button>
+      </div>
+      <p class="note" style="margin:0">Usa ↑ y ↓ para cambiar el orden y haz clic en PERMITIR o NEGAR para cambiar la acción. Las coincidencias cuentan el tráfico de prueba, como el <span class="mono">counter</span> de nftables.</p>
+    </section>
+  </div>
+</div>
+</div>
+
+<script>
+(function(){
+var H={
+ cli:{n:"Cliente",ip:"203.0.113.25",z:"inet",x:137,y:130,k:"pc"},
+ atk:{n:"Atacante",ip:"198.51.100.66",z:"inet",x:137,y:265,k:"pc"},
+ ext:{n:"Sitio externo",ip:"203.0.113.80",z:"inet",x:137,y:400,k:"srv"},
+ web:{n:"Servidor web",ip:"172.16.10.10",z:"dmz",x:650,y:130,k:"srv"},
+ mail:{n:"Correo",ip:"172.16.10.20",z:"dmz",x:744,y:130,k:"srv"},
+ dns:{n:"DNS",ip:"172.16.10.30",z:"dmz",x:838,y:130,k:"srv"},
+ ana:{n:"PC Ana",ip:"192.168.10.21",z:"lan",x:650,y:390,k:"pc"},
+ luis:{n:"PC Luis",ip:"192.168.10.22",z:"lan",x:744,y:390,k:"pc"},
+ adm:{n:"PC Admin",ip:"192.168.10.50",z:"lan",x:838,y:390,k:"pc"}
+};
+var Z={inet:"Internet",dmz:"DMZ",lan:"LAN usuarios"};
+var PORT={inet:{x:400,y:260},dmz:{x:470,y:205},lan:{x:470,y:315}};
+var FC={x:435,y:260};
+var BUS={dmz:88,lan:345};
+function route(h){var p=PORT[h.z];if(h.z==='inet')return[{x:h.x,y:h.y},p];var b=BUS[h.z];return[{x:h.x,y:h.y},{x:h.x,y:b},{x:620,y:b},{x:620,y:p.y},p];}
+var SV={any:{n:"Cualquier servicio",p:""},http:{n:"HTTP",p:"tcp/80"},https:{n:"HTTPS",p:"tcp/443"},ssh:{n:"SSH",p:"tcp/22"},smtp:{n:"SMTP",p:"tcp/25"},dns:{n:"DNS",p:"udp/53"},rdp:{n:"RDP",p:"tcp/3389"},smb:{n:"SMB archivos",p:"tcp/445"},mysql:{n:"MySQL",p:"tcp/3306"},ping:{n:"Ping",p:"icmp"}};
+var F=[
+ ["cli","web","https","a"],["cli","web","http","a"],["cli","mail","smtp","a"],["cli","dns","dns","a"],
+ ["atk","web","ssh","d"],["atk","ana","rdp","d"],["atk","web","mysql","d"],
+ ["ana","ext","https","a"],["luis","ext","http","a"],["ana","dns","dns","a"],["ana","web","https","a"],
+ ["ana","web","ssh","d"],["adm","web","ssh","a"],["web","ana","smb","d"],["web","ext","https","d"],
+ ["mail","ext","smtp","a"],["luis","ext","smb","d"],["ana","luis","smb","n"]
+];
+var TRAD=[["any","h:web","http","a"],["any","h:web","https","a"],["any","h:mail","smtp","a"],["any","h:dns","dns","a"],["h:adm","z:dmz","ssh","a"],["z:lan","z:inet","http","a"],["z:lan","z:inet","https","a"],["h:mail","z:inet","smtp","a"]];
+var OPEN=[["any","any","any","a"]];
+var rules=[],pol="d";
+function mk(a){return a.map(function(r){return{s:r[0],d:r[1],v:r[2],a:r[3]};});}
+try{var sv=JSON.parse(localStorage.getItem("fwsim")||"null");if(sv&&sv.rules){rules=sv.rules;pol=sv.pol||"d";}else rules=mk(TRAD);}catch(e){rules=mk(TRAD);}
+function save(){try{localStorage.setItem("fwsim",JSON.stringify({rules:rules,pol:pol}));}catch(e){}}
+function $(i){return document.getElementById(i);}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function lbl(x){if(x==="any")return"Cualquiera";if(x[0]==="z")return Z[x.slice(2)]+" (zona)";return H[x.slice(2)].n;}
+function m(x,h){return x==="any"||(x[0]==="z"&&H[h].z===x.slice(2))||x==="h:"+h;}
+function ev(s,d,v){if(H[s].z===H[d].z)return{r:"n",i:-2};for(var i=0;i<rules.length;i++){var r=rules[i];if(m(r.s,s)&&m(r.d,d)&&(r.v==="any"||r.v===v))return{r:r.a,i:i};}return{r:pol,i:-1};}
+// selects
+function opts(el,withAny){var h="";if(withAny){h+='<option value="any">Cualquiera</option><optgroup label="Zonas">';for(var z in Z)h+='<option value="z:'+z+'">'+Z[z]+' (zona)</option>';h+="</optgroup>";}
+ for(var z2 in Z){h+='<optgroup label="'+Z[z2]+'">';for(var k in H)if(H[k].z===z2)h+='<option value="'+(withAny?"h:":"")+k+'">'+H[k].n+" · "+H[k].ip+"</option>";h+="</optgroup>";}el.innerHTML=h;}
+function sopts(el,withAny){var h="";for(var k in SV){if(k==="any"&&!withAny)continue;h+='<option value="'+k+'">'+SV[k].n+(SV[k].p?" · "+SV[k].p:"")+"</option>";}el.innerHTML=h;}
+opts($("fs"),1);opts($("fd"),1);sopts($("fv"),1);opts($("cs"),0);opts($("cd"),0);sopts($("cv"),0);
+$("fs").value="z:lan";$("fd").value="z:inet";$("fv").value="https";$("cd").value="web";$("cv").value="https";
+// diagram
+var NS="http://www.w3.org/2000/svg";
+function el(t,a,p){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
+(function(){var w=$("wires"),n=$("nodes");
+ for(var k in H){var h=H[k],p=PORT[h.z];var rt=route(h);el("path",{"class":"wire",d:"M"+rt.map(function(q){return q.x+" "+q.y;}).join("L")},w);
+  var g=el("g",{"class":"nd"},n);
+  el("rect",{x:h.x-34,y:h.y-26,width:68,height:46,rx:8},g);
+  if(h.k==="pc"){el("rect",{"class":"ic",x:h.x-14,y:h.y-14,width:28,height:18,rx:2},g);el("rect",{"class":"ic",x:h.x-4,y:h.y+5,width:8,height:5},g);el("rect",{"class":"ic",x:h.x-10,y:h.y+10,width:20,height:3},g);}
+  else{for(var j=0;j<3;j++)el("rect",{"class":"ic",x:h.x-14,y:h.y-16+j*10,width:28,height:7,rx:1.5},g);}
+  var t=el("text",{"class":"nm",x:h.x,y:h.y+40,"text-anchor":"middle"},g);t.textContent=h.n;
+  var t2=el("text",{"class":"ip",x:h.x,y:h.y+55,"text-anchor":"middle"},g);t2.textContent=h.ip;}
+})();
+// rules UI
+function renderRules(){var h="";
+ if(!rules.length)h='<li class="empty" style="display:block;border-style:dashed">Sin reglas. Todo lo decide la política por defecto.</li>';
+ rules.forEach(function(r,i){h+='<li id="rl'+i+'"><span class="num">'+(i+1)+'</span><div class="what"><b>'+esc(lbl(r.s))+'</b> → <b>'+esc(lbl(r.d))+'</b><br><span class="svc">'+SV[r.v].n+(SV[r.v].p?" · "+SV[r.v].p:"")+'</span> <span class="hits" id="hit'+i+'"></span></div><div class="ctl"><button class="chip '+r.a+'" data-t="'+i+'" title="Cambiar acción">'+(r.a==="a"?"PERMITIR":"NEGAR")+'</button><button data-u="'+i+'" aria-label="Subir regla '+(i+1)+'"'+(i===0?" disabled":"")+'>↑</button><button data-w="'+i+'" aria-label="Bajar regla '+(i+1)+'"'+(i===rules.length-1?" disabled":"")+'>↓</button><button data-x="'+i+'" aria-label="Quitar regla '+(i+1)+'">✕</button></div></li>';});
+ $("rules").innerHTML=h;
+ $("polD").setAttribute("aria-pressed",pol==="d");$("polA").setAttribute("aria-pressed",pol==="a");}
+$("rules").addEventListener("click",function(e){var b=e.target.closest("button");if(!b)return;var d=b.dataset;
+ if(d.t!=null){rules[+d.t].a=rules[+d.t].a==="a"?"d":"a";}
+ else if(d.u!=null){var i=+d.u;var t=rules[i-1];rules[i-1]=rules[i];rules[i]=t;}
+ else if(d.w!=null){var j=+d.w;var t2=rules[j+1];rules[j+1]=rules[j];rules[j]=t2;}
+ else if(d.x!=null){rules.splice(+d.x,1);}
+ upd();});
+$("polD").onclick=function(){pol="d";upd();};$("polA").onclick=function(){pol="a";upd();};
+function addR(top){var r={s:$("fs").value,d:$("fd").value,v:$("fv").value,a:$("fa").value};if(top)rules.unshift(r);else rules.push(r);upd();}
+$("fadd").onclick=function(){addR(0);};$("faddTop").onclick=function(){addR(1);};
+$("pTrad").onclick=function(){rules=mk(TRAD);pol="d";upd();};
+$("pOpen").onclick=function(){rules=mk(OPEN);upd();};
+$("pClear").onclick=function(){rules=[];upd();};
+// tests
+var RES={a:["a","Pasa"],d:["d","Bloqueado"],n:["n","No cruza el FW"]};
+var EXP={a:["a","Permitir"],d:["d","Negar"],n:["n","No cruza"]};
+function who(x){return x.i>=0?"Regla "+(x.i+1):x.i===-1?"Por defecto":"—";}
+function renderTests(){var h="",ok=0,tot=0,hits=rules.map(function(){return 0;});
+ F.forEach(function(f,k){var x=ev(f[0],f[1],f[2]);if(x.i>=0)hits[x.i]++;var good=x.r===f[3];if(f[3]!=="n"){tot++;if(good)ok++;}
+  h+='<tr tabindex="0" data-f="'+k+'" class="'+(good?"":"miss")+'"><td><b>'+H[f[0]].n+'</b> → <b>'+H[f[1]].n+'</b></td><td class="mono">'+SV[f[2]].n+" "+SV[f[2]].p+'</td><td><span class="pill '+EXP[f[3]][0]+'">'+EXP[f[3]][1]+'</span></td><td><span class="pill '+RES[x.r][0]+'">'+RES[x.r][1]+'</span></td><td class="mono">'+who(x)+'</td><td>'+(good?'<span class="ok-ic" aria-label="Cumple">✓</span>':'<span class="no-ic" aria-label="No cumple">✕</span>')+'</td></tr>';});
+ $("tests").innerHTML=h;
+ hits.forEach(function(n,i){var e=$("hit"+i);if(e)e.textContent="· "+n+(n===1?" coincidencia":" coincidencias");var li=$("rl"+i);if(li)li.classList.toggle("dead",n===0);});
+ $("scoreN").textContent=ok+" de "+tot;$("score").className="score "+(ok===tot?"all":"some");}
+function upd(){renderRules();renderTests();save();}
+$("tests").addEventListener("click",function(e){var tr=e.target.closest("tr");if(tr)play([+tr.dataset.f]);});
+$("tests").addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){var tr=e.target.closest("tr");if(tr){e.preventDefault();play([+tr.dataset.f]);}}});
+// animation
+var run=0,reduce=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
+function seg(c,a,b,speed,id){return new Promise(function(res){var L=Math.hypot(b.x-a.x,b.y-a.y),T=reduce?1:L/speed*1000,t0=performance.now();
+ function f(t){if(id!==run)return res();var u=Math.min(1,(t-t0)/T);c.setAttribute("transform","translate("+(a.x+(b.x-a.x)*u)+","+(a.y+(b.y-a.y)*u)+")");if(u<1)requestAnimationFrame(f);else res();}requestAnimationFrame(f);});}
+function flashRule(i,on){var li=$("rl"+i);if(li)li.classList.toggle("flash",on);}
+async function one(s,d,v,id,speed){var x=ev(s,d,v),hs=H[s],hd=H[d];
+ var g=el("g",{"class":"pk"},$("pk"));var c=el("circle",{r:15,fill:"var(--navy)"},g);var t=el("text",{"text-anchor":"middle",y:4},g);t.textContent=SV[v].n.split(" ")[0].slice(0,5);
+ g.setAttribute("transform","translate("+hs.x+","+hs.y+")");
+ var pts;if(x.r==="n"){c.setAttribute("fill","var(--na)");pts=[hs,{x:(hs.x+hd.x)/2,y:hs.y+(hs.z==="inet"?0:-50)},hd];}
+ else pts=route(hs).concat([FC]);
+ for(var i=1;i<pts.length;i++){await seg(g,pts[i-1],pts[i],speed,id);if(id!==run){g.remove();return x;}}
+ if(x.r!=="n"){var gl=$("fwglow");if(x.i>=0)flashRule(x.i,true);
+  c.setAttribute("fill",x.r==="a"?"var(--ok)":"var(--bad)");gl.setAttribute("class","fwglow "+(x.r==="a"?"ok":"bad"));
+  await sleep(reduce?200:450);gl.setAttribute("class","fwglow");if(x.i>=0)flashRule(x.i,false);
+  if(id!==run){g.remove();return x;}
+  if(x.r==="a"){var back=[FC].concat(route(hd).reverse());for(var q=1;q<back.length;q++){await seg(g,back[q-1],back[q],speed,id);if(id!==run)break;}}
+  else{var p=el("path",{d:"M-9 -9L9 9M9 -9L-9 9",stroke:"#fff","stroke-width":4},g);await seg(g,FC,{x:FC.x,y:FC.y+90},speed*0.5,id);}
+ }
+ await sleep(150);g.remove();return x;}
+async function play(list,speed){var id=++run;$("pk").innerHTML="";for(var k=0;k<list.length;k++){if(id!==run)return;var f=F[list[k]];
+ Array.prototype.forEach.call(document.querySelectorAll("#tests tr"),function(r){r.style.background=+r.dataset.f===list[k]?"var(--dmz)":"";});
+ await one(f[0],f[1],f[2],id,speed||420);}
+ Array.prototype.forEach.call(document.querySelectorAll("#tests tr"),function(r){r.style.background="";});}
+$("playall").onclick=function(){play(F.map(function(_,i){return i;}),700);};
+$("csend").onclick=async function(){var s=$("cs").value,d=$("cd").value,v=$("cv").value;if(s===d){$("verdict").textContent="Elige un destino distinto del origen.";return;}
+ var x=ev(s,d,v);var id=++run;$("pk").innerHTML="";
+ $("verdict").innerHTML=x.r==="n"?'<span class="pill n">No cruza el firewall</span> Están en la misma zona: el firewall ni lo ve.':'<span class="pill '+x.r+'">'+(x.r==="a"?"Pasa":"Bloqueado")+"</span> Decidió: "+who(x)+".";
+ await one(s,d,v,id,420);};
+upd();
+setTimeout(function(){play([0,4,13],520);},600);
+})();
+</script>
+
+</body>
+</html>
