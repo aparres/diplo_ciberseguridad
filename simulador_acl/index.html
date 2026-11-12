@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Simulador de ACLs</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: consola de R1 a la izquierda (lo que se escribe), resultados a la derecha (lo que pasa); política y red arriba como referencia. */
+:root{
+  --bg:#F5F7FA; --panel:#FFFFFF; --ink:#152230; --muted:#53657A; --line:#D9E1EA;
+  --navy:#002B50; --accent:#0B5CAD; --gold:#C98A00; --gold-soft:#FFF4D6;
+  --ok:#1E7A45; --ok-soft:#E3F3E9; --bad:#B42335; --bad-soft:#FBE7EA;
+  --console:#0F1E2E; --console-ink:#DCE7F2; --console-dim:#7F96AD;
+  --sans:'IBM Plex Sans', 'Segoe UI', Arial, sans-serif;
+  --mono:'JetBrains Mono', 'Courier New', monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1620; --panel:#16212D; --ink:#E4ECF4; --muted:#9AAABB; --line:#2A3A4B;
+  --navy:#BFD6EE; --accent:#7DB4EA; --gold:#F2B33D; --gold-soft:#3A2E12;
+  --ok:#6BD39A; --ok-soft:#15301F; --bad:#F2899A; --bad-soft:#3A1820;
+  --console:#08111A; --console-ink:#DCE7F2; --console-dim:#7F96AD; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1620; --panel:#16212D; --ink:#E4ECF4; --muted:#9AAABB; --line:#2A3A4B;
+  --navy:#BFD6EE; --accent:#7DB4EA; --gold:#F2B33D; --gold-soft:#3A2E12;
+  --ok:#6BD39A; --ok-soft:#15301F; --bad:#F2899A; --bad-soft:#3A1820;
+  --console:#08111A; --console-ink:#DCE7F2; --console-dim:#7F96AD; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:20px 40px}
+.wrap{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
+h1{font-size:28px;line-height:1.15;margin:0;color:var(--navy);text-wrap:balance}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin:0 0 4px}
+.lead{margin:6px 0 0;color:var(--muted);max-width:70ch}
+h2{font-size:17px;margin:0;color:var(--navy)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+@media (max-width:900px){.grid2{grid-template-columns:minmax(0,1fr)}}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+code,.mono{font-family:var(--mono);font-size:13px}
+.ifaces{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-top:10px}
+.iface{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:3px}
+.iface b{font-family:var(--mono);font-size:13px;color:var(--navy)}
+.iface .who{color:var(--muted);font-size:13px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.chip{font-family:var(--mono);font-size:12px;border-radius:999px;padding:2px 8px;border:1px solid var(--line);color:var(--muted)}
+.chip.on{background:var(--gold-soft);border-color:var(--gold);color:var(--ink)}
+.editor-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px}
+textarea{width:100%;min-height:420px;resize:vertical;background:var(--console);color:var(--console-ink);font-family:var(--mono);font-size:13.5px;line-height:1.55;border:1px solid var(--line);border-radius:10px;padding:12px 14px;tab-size:2}
+textarea:focus-visible,button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+button{font-family:var(--sans);font-size:14px;font-weight:600;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:hover{filter:brightness(1.05)}
+.errors{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.err{font-family:var(--mono);font-size:12.5px;color:var(--bad);background:var(--bad-soft);border-radius:6px;padding:6px 10px}
+.hint{font-size:13px;color:var(--muted);margin:8px 0 0}
+.score{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.score .big{font-size:34px;font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums}
+.score .of{color:var(--muted)}
+.pill{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.pill.pass{background:var(--ok-soft);color:var(--ok)}
+.pill.deny{background:var(--bad-soft);color:var(--bad)}
+.verdict{font-weight:700;white-space:nowrap}
+.verdict.good{color:var(--ok)}
+.verdict.badv{color:var(--bad)}
+tr.flow{cursor:pointer}
+tr.flow:hover td{background:color-mix(in srgb, var(--accent) 6%, transparent)}
+tr.trace td{background:var(--bg);font-size:13px}
+.trace ol{margin:4px 0;padding-left:20px}
+.pkt{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.counters{background:var(--console);color:var(--console-ink);border-radius:10px;padding:12px 14px;font-family:var(--mono);font-size:13px;overflow-x:auto;white-space:pre;margin:8px 0 0;min-height:60px}
+.counters .dim{color:var(--console-dim)}
+.counters .hit{color:#F2B33D}
+.filters{display:flex;gap:6px;flex-wrap:wrap}
+.filters button{padding:4px 10px;font-size:13px}
+.filters button[aria-pressed="true"]{background:var(--navy);color:var(--panel);border-color:var(--navy)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head><body>
+<div class="wrap">
+<header>
+  <div>
+    <p class="eyebrow">Diplomado en Ciberseguridad · Sesión 3</p>
+    <h1>Simulador de ACLs en R1</h1>
+    <p class="lead">Escriban en la consola, como en R1, las ACLs que cumplen la política y aplíquenlas a una interfaz y un sentido. Cada paquete de la lista se evalúa contra lo que escribieron.</p>
+  </div>
+  <div class="score" aria-live="polite"><span class="big" id="score">–</span><span class="of" id="scoreOf">paquetes cumplen la política</span></div>
+</header>
+
+<div class="grid2">
+  <section class="panel">
+    <h2>La política de la matriz</h2>
+    <div class="tablewrap"><table>
+      <tr><th>Desde</th><th>Puede</th><th>No puede</th></tr>
+      <tr><td><b>Usuarios</b> · PC1</td><td>DHCP y DNS; navegar en Internet (80 y 443); ver la intranet y el sitio (80)</td><td>Llegar a gestión; SSH a los servidores</td></tr>
+      <tr><td><b>Intranet</b> · PC2</td><td>Responder a quien le habla; actualizarse en Internet (DNS, 80, 443)</td><td>Iniciar conexiones hacia la red interna</td></tr>
+      <tr><td><b>Sitio web</b> · PC3</td><td>Responder a cualquiera; actualizarse en Internet</td><td>Iniciar conexiones hacia la red interna</td></tr>
+      <tr><td><b>Gestión</b> · PC4</td><td>SSH a los servidores y a los equipos</td><td>—</td></tr>
+      <tr><td><b>Internet</b> · PC5</td><td>Ver el sitio de PC3 (puerto 80 de R1, con NAT)</td><td>Todo lo demás</td></tr>
+    </table></div>
+  </section>
+  <section class="panel">
+    <h2>Las interfaces de R1 (Estación 1)</h2>
+    <div class="ifaces" id="ifaces"></div>
+  </section>
+</div>
+
+<div class="grid2">
+  <section class="panel">
+    <div class="editor-head">
+      <h2>Consola de R1 · <span class="mono">configure terminal</span></h2>
+      <div class="btns">
+        <button class="primary" id="run">Evaluar</button>
+        <button id="example">Ver una solución</button>
+        <button id="clear">Borrar todo</button>
+      </div>
+    </div>
+    <label for="cfg" class="hint" style="display:block;margin:0 0 6px">Comandos que entiende: <code>ip access-list extended|standard NOMBRE</code>, líneas <code>10 permit|deny …</code>, <code>no 10</code>, <code>interface …</code>, <code>ip access-group NOMBRE in|out</code>. Los comentarios empiezan con <code>!</code>.</label>
+    <textarea id="cfg" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+    <div class="errors" id="errors"></div>
+    <p class="hint">Atajo: Ctrl+Enter evalúa. Lo que escriban se guarda en este navegador.</p>
+    <h2 style="margin-top:14px">show access-lists</h2>
+    <div class="counters" id="counters"></div>
+  </section>
+  <section class="panel">
+    <div class="editor-head">
+      <h2>Los paquetes</h2>
+      <div class="filters" role="group" aria-label="Filtrar paquetes">
+        <button data-f="all" aria-pressed="true">Todos</button>
+        <button data-f="bad" aria-pressed="false">Solo los que no cumplen</button>
+      </div>
+    </div>
+    <div class="tablewrap"><table id="flows">
+      <thead><tr><th>#</th><th>Paquete</th><th>Resultado</th><th>Debe</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="hint">Toquen un paquete para ver por qué interfaces pasa y qué línea lo decidió.</p>
+  </section>
+</div>
+</div>
+
+<script>
+(function(){
+'use strict';
+// ---------- La red (Estación 1) ----------
+const R1_PUBLIC = '148.201.137.11';
+const IFACES = [
+  {name:'GigabitEthernet0/0/0', short:'Gi0/0/0', net:'148.201.137.0/24', who:'Salida a ITESO (Internet)', ip:R1_PUBLIC},
+  {name:'GigabitEthernet0/0/1.10', short:'Gi0/0/1.10', net:'10.1.10.0/24', who:'USUARIOS · PC1', ip:'10.1.10.1'},
+  {name:'GigabitEthernet0/0/1.20', short:'Gi0/0/1.20', net:'10.1.20.0/24', who:'SERVIDORES · PC2 intranet', ip:'10.1.20.1'},
+  {name:'GigabitEthernet0/0/1.30', short:'Gi0/0/1.30', net:'10.1.30.0/24', who:'SERVICIOS · PC3 sitio web', ip:'10.1.30.1'},
+  {name:'GigabitEthernet0/0/1.99', short:'Gi0/0/1.99', net:'10.1.99.0/24', who:'GESTION · PC4 y SW1', ip:'10.1.99.1'},
+];
+const H = {PC1:'10.1.10.20', PC2:'10.1.20.10', PC3:'10.1.30.10', PC4:'10.1.99.10', SW1:'10.1.99.11', DNS:'148.201.3.9', WEB:'23.215.0.136', PC5:'148.201.137.50'};
+// Cada paquete: protocolo, origen, destino, puertos, banderas; por dónde entra y sale de R1.
+// Para lo que sale a Internet, la ACL de salida de Gi0/0/0 ve el origen ya traducido (NAT antes del filtro de salida).
+// Para lo que entra desde Internet, la ACL de entrada de Gi0/0/0 ve el destino público (antes del NAT).
+const SYN={syn:true}, ACK={ack:true};
+const FLOWS = [
+  {d:'PC1 pide IP por DHCP', p:'udp', s:'0.0.0.0', sp:68, t:'255.255.255.255', tp:67, in:'Gi0/0/1.10', out:null, exp:true},
+  {d:'PC1 pregunta al DNS', p:'udp', s:H.PC1, sp:50123, t:H.DNS, tp:53, in:'Gi0/0/1.10', out:'Gi0/0/0', nat:'out', exp:true},
+  {d:'Respuesta del DNS a PC1', p:'udp', s:H.DNS, sp:53, t:H.PC1, tp:50123, in:'Gi0/0/0', out:'Gi0/0/1.10', nat:'in', exp:true},
+  {d:'PC1 abre example.com (https)', p:'tcp', s:H.PC1, sp:51001, t:H.WEB, tp:443, f:SYN, in:'Gi0/0/1.10', out:'Gi0/0/0', nat:'out', exp:true},
+  {d:'example.com responde a PC1', p:'tcp', s:H.WEB, sp:443, t:H.PC1, tp:51001, f:ACK, in:'Gi0/0/0', out:'Gi0/0/1.10', nat:'in', exp:true},
+  {d:'PC1 abre la intranet de PC2', p:'tcp', s:H.PC1, sp:51002, t:H.PC2, tp:80, f:SYN, in:'Gi0/0/1.10', out:'Gi0/0/1.20', exp:true},
+  {d:'PC2 responde a PC1', p:'tcp', s:H.PC2, sp:80, t:H.PC1, tp:51002, f:ACK, in:'Gi0/0/1.20', out:'Gi0/0/1.10', exp:true},
+  {d:'PC1 abre el sitio de PC3', p:'tcp', s:H.PC1, sp:51003, t:H.PC3, tp:80, f:SYN, in:'Gi0/0/1.10', out:'Gi0/0/1.30', exp:true},
+  {d:'PC3 responde a PC1', p:'tcp', s:H.PC3, sp:80, t:H.PC1, tp:51003, f:ACK, in:'Gi0/0/1.30', out:'Gi0/0/1.10', exp:true},
+  {d:'PC1 hace ping a SW1 (gestión)', p:'icmp', s:H.PC1, t:H.SW1, in:'Gi0/0/1.10', out:'Gi0/0/1.99', exp:false},
+  {d:'PC1 intenta SSH a PC2', p:'tcp', s:H.PC1, sp:51004, t:H.PC2, tp:22, f:SYN, in:'Gi0/0/1.10', out:'Gi0/0/1.20', exp:false},
+  {d:'PC2 intenta abrir una conexión a PC1', p:'tcp', s:H.PC2, sp:40001, t:H.PC1, tp:80, f:SYN, in:'Gi0/0/1.20', out:'Gi0/0/1.10', exp:false},
+  {d:'PC2 se actualiza (https)', p:'tcp', s:H.PC2, sp:40002, t:H.WEB, tp:443, f:SYN, in:'Gi0/0/1.20', out:'Gi0/0/0', nat:'out', exp:true},
+  {d:'PC3 intenta abrir la intranet de PC2', p:'tcp', s:H.PC3, sp:40003, t:H.PC2, tp:80, f:SYN, in:'Gi0/0/1.30', out:'Gi0/0/1.20', exp:false},
+  {d:'PC3 se actualiza (https)', p:'tcp', s:H.PC3, sp:40004, t:H.WEB, tp:443, f:SYN, in:'Gi0/0/1.30', out:'Gi0/0/0', nat:'out', exp:true},
+  {d:'PC4 entra por SSH a PC2', p:'tcp', s:H.PC4, sp:52001, t:H.PC2, tp:22, f:SYN, in:'Gi0/0/1.99', out:'Gi0/0/1.20', exp:true},
+  {d:'PC2 responde el SSH a PC4', p:'tcp', s:H.PC2, sp:22, t:H.PC4, tp:52001, f:ACK, in:'Gi0/0/1.20', out:'Gi0/0/1.99', exp:true},
+  {d:'PC5 (Internet) abre el sitio publicado', p:'tcp', s:H.PC5, sp:53001, t:H.PC3, tp:80, f:SYN, in:'Gi0/0/0', out:'Gi0/0/1.30', nat:'in', exp:true},
+  {d:'PC3 responde a PC5', p:'tcp', s:H.PC3, sp:80, t:H.PC5, tp:53001, f:ACK, in:'Gi0/0/1.30', out:'Gi0/0/0', nat:'out', exp:true},
+];
+
+const SOLUTION = `! Una solución (Estación 1). Hay otras que también cumplen.
+ip access-list extended USUARIOS-IN
+ 10 permit udp any any eq bootps
+ 20 permit udp 10.1.10.0 0.0.0.255 any eq domain
+ 30 permit tcp 10.1.10.0 0.0.0.255 host 10.1.20.10 eq www
+ 40 permit tcp 10.1.10.0 0.0.0.255 host 10.1.30.10 eq www
+ 50 deny ip 10.1.10.0 0.0.0.255 10.1.0.0 0.0.255.255 log
+ 60 permit tcp 10.1.10.0 0.0.0.255 any eq www
+ 70 permit tcp 10.1.10.0 0.0.0.255 any eq 443
+ 80 deny ip any any log
+!
+ip access-list extended SERVIDORES-IN
+ 10 permit tcp host 10.1.20.10 eq www 10.1.10.0 0.0.0.255 established
+ 20 permit tcp host 10.1.20.10 eq 22 10.1.99.0 0.0.0.255 established
+ 30 permit udp 10.1.20.0 0.0.0.255 any eq domain
+ 40 deny ip 10.1.20.0 0.0.0.255 10.1.0.0 0.0.255.255 log
+ 50 permit tcp 10.1.20.0 0.0.0.255 any eq www
+ 60 permit tcp 10.1.20.0 0.0.0.255 any eq 443
+ 70 deny ip any any log
+!
+ip access-list extended SERVICIOS-IN
+ 10 permit tcp host 10.1.30.10 eq www any established
+ 20 permit tcp host 10.1.30.10 eq 22 10.1.99.0 0.0.0.255 established
+ 30 permit udp 10.1.30.0 0.0.0.255 any eq domain
+ 40 deny ip 10.1.30.0 0.0.0.255 10.1.0.0 0.0.255.255 log
+ 50 permit tcp 10.1.30.0 0.0.0.255 any eq www
+ 60 permit tcp 10.1.30.0 0.0.0.255 any eq 443
+ 70 deny ip any any log
+!
+interface GigabitEthernet0/0/1.10
+ ip access-group USUARIOS-IN in
+interface GigabitEthernet0/0/1.20
+ ip access-group SERVIDORES-IN in
+interface GigabitEthernet0/0/1.30
+ ip access-group SERVICIOS-IN in
+`;
+const START = `! Escriban aquí, como en R1 después de "configure terminal".
+! Ejemplo para empezar:
+ip access-list extended USUARIOS-IN
+ 10 permit udp any any eq bootps
+!
+interface GigabitEthernet0/0/1.10
+ ip access-group USUARIOS-IN in
+`;
+
+// ---------- Utilidades de IP ----------
+const ip2n = s => { const p = s.split('.').map(Number); return ((p[0]<<24)>>>0) + (p[1]<<16) + (p[2]<<8) + p[3]; };
+const isIP = s => /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(s) && s.split('.').every(x => +x <= 255);
+const PORTS = {www:80, http:80, domain:53, bootps:67, bootpc:68, telnet:23, smtp:25, ftp:21, 'ftp-data':20, ntp:123, snmp:161, tftp:69, pop3:110};
+function normIface(s){
+  const m = /^(g|gi|gig|giga|gigabit|gigabitethernet)\s*(\d+\/\d+\/\d+(?:\.\d+)?)$/i.exec(s.replace(/\s+/g,''));
+  if(!m) return null;
+  return 'Gi' + m[2];
+}
+
+// ---------- Parser ----------
+function parse(text){
+  const acls = {};           // nombre -> {type, entries:[{seq, action, ...}]}
+  const groups = {};         // 'Gi0/0/1.10' -> {in:'NAME', out:'NAME'}
+  const errors = [];
+  let mode = 'global', cur = null, iface = null;
+  const lines = text.split('\n');
+  lines.forEach((raw, idx) => {
+    const ln = idx + 1;
+    let line = raw.replace(/\t/g,' ').trim();
+    if(!line || line.startsWith('!')) return;
+    const low = line.toLowerCase();
+    const w = line.split(/\s+/);
+    const lw = w.map(x => x.toLowerCase());
+    if(['enable','end','exit','configure terminal','conf t','write memory','wr'].includes(low)){ if(low==='exit'||low==='end'){mode='global';cur=null;iface=null;} return; }
+    if(lw[0]==='ip' && lw[1]==='access-list'){
+      if(!['extended','standard'].includes(lw[2]) || !w[3]){ errors.push([ln,'Falta «extended» o «standard» y el nombre de la ACL.']); return; }
+      const name = w[3];
+      if(acls[name] && acls[name].type !== lw[2]){ errors.push([ln,`La ACL ${name} ya existe como ${acls[name].type}.`]); return; }
+      acls[name] = acls[name] || {type:lw[2], entries:[]};
+      mode = 'acl'; cur = name; iface = null; return;
+    }
+    if(lw[0]==='interface'){
+      const n = normIface(w.slice(1).join(''));
+      if(!n || !IFACES.some(i => i.short === n)){ errors.push([ln,`R1 no tiene la interfaz «${w.slice(1).join(' ')}». Usen Gi0/0/0 o Gi0/0/1.10, .20, .30 o .99.`]); mode='global'; return; }
+      mode = 'iface'; iface = n; cur = null; return;
+    }
+    if(mode === 'iface'){
+      const neg = lw[0]==='no';
+      const k = neg ? lw.slice(1) : lw;
+      const ww = neg ? w.slice(1) : w;
+      if(k[0]==='ip' && k[1]==='access-group'){
+        if(!ww[2] || !['in','out'].includes(k[3])){ errors.push([ln,'Uso: ip access-group NOMBRE in|out']); return; }
+        groups[iface] = groups[iface] || {};
+        if(neg){ if(groups[iface][k[3]] === ww[2]) delete groups[iface][k[3]]; }
+        else groups[iface][k[3]] = ww[2];
+        return;
+      }
+      if(k[0]==='description' || k[0]==='encapsulation' || (k[0]==='ip'&&k[1]==='address') || k[0]==='shutdown' || (k[0]==='ip'&&k[1]==='nat')) return;
+      errors.push([ln,'Dentro de una interfaz, aquí solo se usa «ip access-group NOMBRE in|out».']); return;
+    }
+    if(mode === 'acl'){
+      const acl = acls[cur];
+      if(lw[0]==='remark') return;
+      if(lw[0]==='no'){
+        const sq = parseInt(lw[1],10);
+        if(isNaN(sq)){ errors.push([ln,'Para borrar una línea: no NÚMERO (por ejemplo, no 40).']); return; }
+        const before = acl.entries.length;
+        acl.entries = acl.entries.filter(e => e.seq !== sq);
+        if(acl.entries.length === before) errors.push([ln,`La ACL ${cur} no tiene línea ${sq}.`]);
+        return;
+      }
+      let i = 0, seq = null;
+      if(/^\d+$/.test(w[0])){ seq = parseInt(w[0],10); i = 1; }
+      const action = lw[i];
+      if(!['permit','deny'].includes(action)){ errors.push([ln,`«${w[i]||''}» no es válido dentro de una ACL: cada línea empieza con permit o deny (con o sin número).`]); return; }
+      i++;
+      const e = {seq, action, text: line.replace(/^\d+\s+/,'')};
+      try{
+        if(acl.type === 'standard'){
+          [e.src, i] = readAddr(w, lw, i, true);
+          e.proto = 'ip';
+        } else {
+          const proto = lw[i];
+          if(!['ip','tcp','udp','icmp'].includes(proto)) throw 'El protocolo debe ser ip, tcp, udp o icmp.';
+          e.proto = proto; i++;
+          [e.src, i] = readAddr(w, lw, i, false);
+          if(proto==='tcp'||proto==='udp'){ [e.sport, i] = readPort(lw, i); }
+          [e.dst, i] = readAddr(w, lw, i, false);
+          if(proto==='tcp'||proto==='udp'){ [e.dport, i] = readPort(lw, i); }
+          if(lw[i]==='established'){ if(proto!=='tcp') throw '«established» solo existe con tcp.'; e.est = true; i++; }
+          if(proto==='icmp' && lw[i] && !['log','established'].includes(lw[i])){ e.icmpType = lw[i]; i++; }
+        }
+        if(lw[i]==='log'){ e.log = true; i++; }
+        if(i < lw.length) throw `No se esperaba «${w[i]}» aquí.`;
+      }catch(msg){ errors.push([ln, typeof msg==='string'? msg : 'Línea no válida.']); return; }
+      if(e.seq === null){ const last = acl.entries.reduce((m,x)=>Math.max(m,x.seq),0); e.seq = last + 10; }
+      if(acl.entries.some(x => x.seq === e.seq)){ errors.push([ln,`La línea ${e.seq} ya existe en ${cur}. Bórrenla con «no ${e.seq}» o usen otro número.`]); return; }
+      acl.entries.push(e); acl.entries.sort((a,b)=>a.seq-b.seq);
+      return;
+    }
+    if(/^\d+$/.test(w[0]) || lw[0]==='permit' || lw[0]==='deny') { errors.push([ln,'Esta línea va dentro de una ACL: antes escriban «ip access-list extended NOMBRE».']); return; }
+    errors.push([ln,`R1 no reconoce «${line}» en este simulador.`]);
+  });
+  return {acls, groups, errors};
+}
+function readAddr(w, lw, i, std){
+  if(lw[i]==='any') return [{ip:0, wc:0xFFFFFFFF, txt:'any'}, i+1];
+  if(lw[i]==='host'){ if(!isIP(w[i+1]||'')) throw 'Después de «host» va una IP.'; return [{ip:ip2n(w[i+1]), wc:0, txt:'host '+w[i+1]}, i+2]; }
+  if(isIP(w[i]||'')){
+    if(isIP(w[i+1]||'')) return [{ip:ip2n(w[i]), wc:ip2n(w[i+1]), txt:w[i]+' '+w[i+1]}, i+2];
+    if(std) return [{ip:ip2n(w[i]), wc:0, txt:w[i]}, i+1];
+    throw `Después de ${w[i]} va su wildcard (por ejemplo 0.0.0.255), o usen «host ${w[i]}».`;
+  }
+  throw `Se esperaba una dirección: any, host X o red + wildcard, y vino «${w[i]||'fin de línea'}».`;
+}
+function readPort(lw, i){
+  const op = lw[i];
+  const val = s => { if(s===undefined) throw 'Falta el puerto.'; if(/^\d+$/.test(s)) return +s; if(PORTS[s]!==undefined) return PORTS[s]; throw `No conozco el puerto «${s}». Usen un número o www, domain, bootps…`; };
+  if(op==='eq') return [{op, a:val(lw[i+1])}, i+2];
+  if(op==='neq'||op==='gt'||op==='lt') return [{op, a:val(lw[i+1])}, i+2];
+  if(op==='range') return [{op, a:val(lw[i+1]), b:val(lw[i+2])}, i+3];
+  return [null, i];
+}
+
+// ---------- Evaluación ----------
+function addrMatch(a, ip){ return ((ip2n(ip) & ~a.wc)>>>0) === ((a.ip & ~a.wc)>>>0); }
+function portMatch(p, port){ if(!p) return true; if(port===undefined) return false;
+  if(p.op==='eq') return port===p.a; if(p.op==='neq') return port!==p.a; if(p.op==='gt') return port>p.a; if(p.op==='lt') return port<p.a; return port>=p.a && port<=p.b; }
+function entryMatch(e, k){
+  if(e.proto!=='ip' && e.proto!==k.p) return false;
+  if(!addrMatch(e.src, k.s)) return false;
+  if(e.dst && !addrMatch(e.dst, k.t)) return false;
+  if(!portMatch(e.sport, k.sp) || !portMatch(e.dport, k.tp)) return false;
+  if(e.est && !(k.f && (k.f.ack || k.f.rst))) return false;
+  return true;
+}
+function view(flow, where){
+  // Cómo ve el paquete cada ACL (NAT): entrada desde Internet ve el destino público; salida a Internet ve el origen público.
+  const k = {...flow};
+  if(flow.nat==='in' && where==='in' && flow.in==='Gi0/0/0'){
+    if(flow.d.includes('sitio publicado')) k.t = R1_PUBLIC; else { k.t = R1_PUBLIC; }
+  }
+  if(flow.nat==='out' && where==='out' && flow.out==='Gi0/0/0'){ k.s = R1_PUBLIC; }
+  return k;
+}
+function evaluate(cfg){
+  const counters = {};
+  Object.keys(cfg.acls).forEach(n => cfg.acls[n].entries.forEach(e => counters[n+'#'+e.seq] = 0));
+  const results = FLOWS.map((f, idx) => {
+    const steps = []; let pass = true;
+    const hops = [['in', f.in]]; if(f.out) hops.push(['out', f.out]);
+    for(const [dir, ifc] of hops){
+      const name = (cfg.groups[ifc]||{})[dir];
+      const label = (dir==='in'?'Entra por ':'Sale por ') + ifc;
+      if(!name){ steps.push({label, acl:null, msg:'sin ACL en ese sentido: pasa'}); continue; }
+      const acl = cfg.acls[name];
+      if(!acl){ steps.push({label, acl:name, msg:`la ACL ${name} no existe: IOS deja pasar todo`}); continue; }
+      const k = view(f, dir);
+      const hit = acl.entries.find(e => entryMatch(e, k));
+      if(hit){ counters[name+'#'+hit.seq]++; steps.push({label, acl:name, seq:hit.seq, action:hit.action, msg:`${name} ${dir}, línea ${hit.seq}: ${hit.action}`});
+        if(hit.action==='deny'){ pass=false; break; } }
+      else { steps.push({label, acl:name, seq:null, action:'deny', msg:`${name} ${dir}: ninguna línea coincide, deny implícito`}); pass=false; break; }
+    }
+    if(pass) steps.push({label:'Llega', msg: f.out ? 'el paquete llega a su destino' : 'R1 recibe la petición'});
+    return {f, idx, pass, ok: pass===f.exp, steps};
+  });
+  return {results, counters};
+}
+
+// ---------- Interfaz ----------
+const $ = s => document.querySelector(s);
+const ta = $('#cfg');
+let filter = 'all', open = new Set(), last = null;
+const KEY = 'simulador-acl-v1';
+function load(){ try{ const v = localStorage.getItem(KEY); return v===null ? START : v; }catch(e){ return START; } }
+function save(){ try{ localStorage.setItem(KEY, ta.value); }catch(e){} }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function pktText(f){
+  const port = (x) => x===undefined ? '' : ':' + x;
+  const flags = f.f ? (f.f.syn ? ' SYN' : ' ACK') : '';
+  return `${f.p.toUpperCase()} ${f.s}${port(f.sp)} → ${f.t}${port(f.tp)}${flags}`;
+}
+function render(){
+  const cfg = parse(ta.value);
+  const {results, counters} = evaluate(cfg);
+  last = {cfg, results};
+  // errores
+  $('#errors').innerHTML = cfg.errors.map(([ln,m]) => `<div class="err">Línea ${ln}: % ${esc(m)}</div>`).join('');
+  // interfaces
+  $('#ifaces').innerHTML = IFACES.map(i => { const g = cfg.groups[i.short]||{};
+    return `<div class="iface"><b>${i.short}</b><span class="who">${esc(i.who)}</span><span class="mono" style="color:var(--muted)">${i.net}</span>
+      <div class="chips"><span class="chip ${g.in?'on':''}">in: ${esc(g.in||'—')}</span><span class="chip ${g.out?'on':''}">out: ${esc(g.out||'—')}</span></div></div>`; }).join('');
+  // puntaje
+  const good = results.filter(r => r.ok).length;
+  $('#score').textContent = `${good} de ${results.length}`;
+  // flujos
+  const rows = results.filter(r => filter==='all' || !r.ok).map(r => {
+    const f = r.f;
+    const main = `<tr class="flow" data-i="${r.idx}" tabindex="0" aria-expanded="${open.has(r.idx)}">
+      <td class="mono">${r.idx+1}</td>
+      <td><div>${esc(f.d)}</div><div class="pkt">${esc(pktText(f))}</div></td>
+      <td><span class="pill ${r.pass?'pass':'deny'}">${r.pass?'Pasa':'Negado'}</span></td>
+      <td>${f.exp?'Pasar':'Negarse'}</td>
+      <td class="verdict ${r.ok?'good':'badv'}">${r.ok?'✓ Cumple':'✗ No cumple'}</td></tr>`;
+    const tr = open.has(r.idx) ? `<tr class="trace"><td></td><td colspan="4"><ol>${r.steps.map(s => `<li><b>${esc(s.label)}</b>: ${esc(s.msg)}</li>`).join('')}</ol></td></tr>` : '';
+    return main + tr;
+  }).join('');
+  $('#flows tbody').innerHTML = rows || `<tr><td colspan="5">Todos los paquetes cumplen la política.</td></tr>`;
+  // contadores
+  const names = Object.keys(cfg.acls);
+  $('#counters').innerHTML = names.length ? names.map(n => { const a = cfg.acls[n];
+    const head = `<span class="dim">${a.type==='extended'?'Extended':'Standard'} IP access list</span> ${esc(n)}`;
+    const body = a.entries.map(e => { const c = counters[n+'#'+e.seq]; return `    ${e.seq} ${esc(e.text)}${c?` <span class="hit">(${c} match${c>1?'es':''})</span>`:''}`; }).join('\n');
+    return head + '\n' + (body || '    <span class="dim">(vacía)</span>'); }).join('\n\n') : '<span class="dim">Todavía no hay ACLs.</span>';
+}
+$('#run').addEventListener('click', () => { save(); render(); });
+ta.addEventListener('keydown', e => { if(e.key==='Enter' && (e.ctrlKey||e.metaKey)){ e.preventDefault(); save(); render(); } });
+ta.addEventListener('input', save);
+let confirmClear = false;
+$('#clear').addEventListener('click', e => {
+  if(!confirmClear){ confirmClear = true; e.target.textContent = '¿Seguro? Toquen otra vez'; setTimeout(()=>{ confirmClear=false; e.target.textContent='Borrar todo'; }, 3000); return; }
+  confirmClear = false; e.target.textContent = 'Borrar todo'; ta.value = ''; save(); render();
+});
+let showingSol = false, saved = '';
+$('#example').addEventListener('click', e => {
+  if(!showingSol){ saved = ta.value; ta.value = SOLUTION; e.target.textContent = 'Regresar a lo mío'; }
+  else { ta.value = saved; e.target.textContent = 'Ver una solución'; }
+  showingSol = !showingSol; render();
+});
+document.querySelectorAll('.filters button').forEach(b => b.addEventListener('click', () => {
+  filter = b.dataset.f; document.querySelectorAll('.filters button').forEach(x => x.setAttribute('aria-pressed', x===b)); render(); }));
+$('#flows').addEventListener('click', e => { const tr = e.target.closest('tr.flow'); if(!tr) return; const i = +tr.dataset.i; open.has(i)?open.delete(i):open.add(i); render(); });
+$('#flows').addEventListener('keydown', e => { if(e.key==='Enter'||e.key===' '){ const tr = e.target.closest('tr.flow'); if(tr){ e.preventDefault(); tr.click(); } } });
+ta.value = load();
+render();
+window.__sim = {parse, evaluate, SOLUTION};
+})();
+</script>
+
+</body></html>
